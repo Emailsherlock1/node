@@ -1,0 +1,51 @@
+{
+  "name": "@emailsherlock/node",
+  "version": "0.1.0",
+  "description": "Official Node.js client for the EmailSherlock email-verification API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test test/",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "email",
+    "email-verification",
+    "email-validation",
+    "emailsherlock",
+    "mx",
+    "smtp",
+    "disposable"
+  ],
+  "homepage": "https://emailsherlock.com/api/docs",
+  "bugs": {
+    "url": "https://github.com/Emailsherlock1/node/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Emailsherlock1/node.git"
+  },
+  "license": "MIT",
+  "author": "EmailSherlock",
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

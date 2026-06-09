@@ -32,6 +32,74 @@ test('verify.single returns the result object and captures credits', async () =>
   assert.equal(es.rateLimit.limit, 60);
 });
 
+test('verify.single surfaces the v2 fields when the API sends them', async () => {
+  const es = new Emailsherlock('test-key', {
+    fetch: stubFetch(200, {
+      email: 'jane@acme.com',
+      result: 'valid',
+      mx: true,
+      disposable: false,
+      role: false,
+      catch_all: false,
+      score: 0.95,
+      freshness: 'fresh',
+      deliverable: true,
+      reason: 'mailbox_accepts',
+      mx_record: 'mx1.acme.com',
+      free_email: false,
+      checked_at: '2026-06-09T12:00:00Z',
+      domain: {
+        name: 'acme.com',
+        types: ['company'],
+        score: 87,
+        spf: true,
+        dkim: true,
+        dmarc: true,
+        dmarc_policy: 'reject',
+        mta_sts: false,
+        tls_rpt: false,
+        bimi: false,
+        dane: false,
+        blacklists: 0,
+        dnssec: 'secure',
+        caa: true,
+      },
+    }),
+  });
+
+  const result = await es.verify.single({ email: 'jane@acme.com' });
+  assert.equal(result.deliverable, true);
+  assert.equal(result.reason, 'mailbox_accepts');
+  assert.equal(result.mx_record, 'mx1.acme.com');
+  assert.equal(result.free_email, false);
+  assert.equal(result.checked_at, '2026-06-09T12:00:00Z');
+  assert.equal(result.domain.name, 'acme.com');
+  assert.deepEqual(result.domain.types, ['company']);
+  assert.equal(result.domain.dmarc_policy, 'reject');
+  assert.equal(result.domain.dnssec, 'secure');
+});
+
+test('verify.single tolerates responses without the v2 fields', async () => {
+  const es = new Emailsherlock('test-key', {
+    fetch: stubFetch(200, {
+      email: 'jane@acme.com',
+      result: 'unknown',
+      mx: true,
+      disposable: false,
+      role: false,
+      catch_all: false,
+      score: null,
+      freshness: 'fresh',
+    }),
+  });
+
+  const result = await es.verify.single({ email: 'jane@acme.com' });
+  assert.equal(result.result, 'unknown');
+  assert.equal(result.score, null);
+  assert.equal(result.deliverable, undefined);
+  assert.equal(result.domain, undefined);
+});
+
 test('verify.batch returns results and the type guard splits them', async () => {
   const es = new Emailsherlock({
     apiKey: 'k',

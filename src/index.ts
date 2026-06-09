@@ -16,6 +16,8 @@ export {
 export type {
   VerifyResult,
   VerifyVerdict,
+  VerifyReason,
+  VerifyDomain,
   Freshness,
   BatchItem,
   BatchItemError,

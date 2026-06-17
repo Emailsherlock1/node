@@ -84,6 +84,51 @@ test('429 carries retry-after', async () => {
   });
 });
 
+test('credits() reads the account status', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(200, {
+      credits: { total: 1240, purchased: 1000, gifted: 240 },
+      rate_limit: { limit: 60, remaining: 59, reset: 1700000000 },
+      plan: 'Free',
+      sandbox: false,
+    }),
+  });
+  const status = await es.credits();
+  assert.equal(status.credits.total, 1240);
+  assert.equal(status.sandbox, false);
+});
+
+test('verify.submitJob returns a processing job', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(202, {
+      id: 'job-1',
+      status: 'processing',
+      total: 2,
+      progress: { total: 2, done: 0 },
+      created_at: '2026-06-10T14:32:00+00:00',
+      expires_at: '2026-06-17T14:32:00+00:00',
+    }),
+  });
+  const job = await es.verify.submitJob({ emails: ['a@b.com', 'c@d.com'] });
+  assert.equal(job.id, 'job-1');
+  assert.equal(job.status, 'processing');
+});
+
+test('guard.recordEvents posts the events array', async () => {
+  let captured;
+  const es = new Emailsherlock('k', {
+    fetch: async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return new Response(null, { status: 202 });
+    },
+  });
+  await es.guard.recordEvents([
+    { verdict: 'disposable', action: 'deny', reasons: ['disposable_provider'], degraded: false, source: 'local' },
+  ]);
+  assert.equal(captured.events.length, 1);
+  assert.equal(captured.events[0].verdict, 'disposable');
+});
+
 test('missing key throws at construction', () => {
   const saved = process.env.ES_KEY;
   delete process.env.ES_KEY;

@@ -67,6 +67,52 @@ for (const item of results) {
 | `catch_all`  | boolean   | host accepts mail for any local part                            |
 | `score`      | number    | 0–1 confidence, higher is safer to send to                      |
 | `freshness`  | string    | `fresh` · `cached_recent` · `cached_stale_refreshed`            |
+| `deliverable`| boolean?  | proven via SMTP: `true` accepted, `false` provably bad, `null` unproven |
+| `reason`     | string?   | why the pipeline decided (`mailbox_accepts`, `greylisted`, …)   |
+| `mx_record`  | string?   | the primary MX host, when one was resolved                      |
+| `free_email` | boolean?  | the domain is a freemail provider                               |
+| `checked_at` | string?   | when the verification ran (ISO 8601)                            |
+| `domain`     | object?   | domain-level intelligence (SPF, DKIM, DMARC, score, blacklists, …) |
+| `decision`   | object    | `{ recommendation: allow·deny·review, reasons[] }`              |
+
+Every field and model type is generated from the [OpenAPI spec](https://emailsherlock.com/api/docs) and exported, so your editor autocompletes the full shape.
+
+## Async jobs
+
+For large lists, submit a job and poll it. Every address runs the full pipeline
+including the SMTP probe, so the results carry definitive inbox verdicts:
+
+```js
+const job = await es.verify.submitJob({ emails: ['a@acme.com', 'b@acme.com'] });
+
+let status = job;
+while (status.status !== 'completed') {
+  await new Promise((r) => setTimeout(r, 2000));
+  status = await es.verify.getJob(job.id);
+}
+
+console.log(status.results);
+```
+
+## Account status
+
+```js
+const account = await es.credits();
+account.credits.total; // spendable credits
+account.rateLimit;     // { limit, remaining, reset }
+account.sandbox;       // true on an es_test_ key
+```
+
+## Email-Guard events
+
+Record Email-Guard decision events (free, no credits). The full address is never
+sent, only the domain:
+
+```js
+await es.guard.recordEvents([
+  { domain: 'mailinator.com', verdict: 'disposable', action: 'deny', reasons: ['disposable_provider'], degraded: false, source: 'local' },
+]);
+```
 
 ## Credits and rate limits
 
@@ -87,7 +133,7 @@ Every failure throws a subclass of `EmailsherlockError`:
 | `ForbiddenError`            | 403  | key lacks the endpoint's scope (`requiredScope`) |
 | `InsufficientCreditsError`  | 402  | not enough credits (`creditsRequired`, `creditsRemaining`) |
 | `RateLimitError`            | 429  | rate limit hit (`retryAfter`, `limit`, `remaining`, `reset`) |
-| `ValidationError`           | 400 / 422 | the request body was rejected            |
+| `ValidationError`           | 400 / 404 / 422 | the request was rejected, or the job was not found |
 | `ServiceUnavailableError`   | 503  | verify engine unavailable (the credit is auto-refunded) |
 
 ```js

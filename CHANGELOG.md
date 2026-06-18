@@ -17,6 +17,7 @@ this release adds the endpoints and result fields the API already served.
 ### Changed
 
 - The HTTP client and models are regenerated from `openapi.json` instead of hand-written. Named error classes (`AuthenticationError`, `InsufficientCreditsError`, `RateLimitError`, …), `creditsRemaining`, the rate-limit accessor, and the `ES_KEY` / `EMAILSHERLOCK_API_KEY` env fallback are unchanged.
+- Result fields keep the wire names (`catch_all`, `mx_record`, `free_email`, `checked_at`), same as 0.1.0. No camelCase rename, so existing field access keeps working.
 - `ValidationError` now also covers `404` (job not found).
 
 ## 0.1.0

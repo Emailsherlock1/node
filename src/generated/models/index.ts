@@ -17,7 +17,7 @@ export interface AccountStatusResponse {
      * @type {AccountStatusResponseRateLimit}
      * @memberof AccountStatusResponse
      */
-    rateLimit: AccountStatusResponseRateLimit;
+    rate_limit: AccountStatusResponseRateLimit;
     /**
      * The plan behind the key.
      * @type {string}
@@ -267,19 +267,19 @@ export interface VerifyDomainResponse {
      * @type {VerifyDomainResponseDmarcPolicyEnum}
      * @memberof VerifyDomainResponse
      */
-    dmarcPolicy?: VerifyDomainResponseDmarcPolicyEnum | null;
+    dmarc_policy?: VerifyDomainResponseDmarcPolicyEnum | null;
     /**
      * An MTA-STS policy is published.
      * @type {boolean}
      * @memberof VerifyDomainResponse
      */
-    mtaSts?: boolean | null;
+    mta_sts?: boolean | null;
     /**
      * A TLS-RPT record exists.
      * @type {boolean}
      * @memberof VerifyDomainResponse
      */
-    tlsRpt?: boolean | null;
+    tls_rpt?: boolean | null;
     /**
      * A BIMI record exists.
      * @type {boolean}
@@ -396,13 +396,13 @@ export interface VerifyJobResponse {
      * @type {string}
      * @memberof VerifyJobResponse
      */
-    createdAt: string;
+    created_at: string;
     /**
      * When the results are purged (ISO 8601, 7 days after submit).
      * @type {string}
      * @memberof VerifyJobResponse
      */
-    expiresAt: string;
+    expires_at: string;
     /**
      * One entry per submitted address, in order. Present only when status is completed. Entries are verify results, or per-item errors ({email, error}) for addresses that could not be processed.
      * @type {Array<object>}
@@ -481,7 +481,7 @@ export interface VerifyResultResponse {
      * @type {string}
      * @memberof VerifyResultResponse
      */
-    mxRecord?: string | null;
+    mx_record?: string | null;
     /**
      * Throwaway / temporary-mail provider.
      * @type {boolean}
@@ -499,13 +499,13 @@ export interface VerifyResultResponse {
      * @type {boolean}
      * @memberof VerifyResultResponse
      */
-    catchAll: boolean;
+    catch_all: boolean;
     /**
      * The domain is a freemail provider (gmail.com, web.de, ...). Null when the domain is not classified yet.
      * @type {boolean}
      * @memberof VerifyResultResponse
      */
-    freeEmail?: boolean | null;
+    free_email?: boolean | null;
     /**
      * 0-1 confidence, higher is safer to send to.
      * @type {number}
@@ -523,7 +523,7 @@ export interface VerifyResultResponse {
      * @type {string}
      * @memberof VerifyResultResponse
      */
-    checkedAt?: string | null;
+    checked_at?: string | null;
     /**
      * Domain-level intelligence. Null when the domain has not been crawled yet.
      * @type {VerifyDomainResponse}

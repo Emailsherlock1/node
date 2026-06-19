@@ -152,6 +152,76 @@ test('429 carries retry-after', async () => {
   });
 });
 
+test('credits() reads the account status', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(200, {
+      credits: { total: 1240, purchased: 1000, gifted: 240 },
+      rate_limit: { limit: 60, remaining: 59, reset: 1700000000 },
+      plan: 'Free',
+      sandbox: false,
+    }),
+  });
+  const status = await es.credits();
+  assert.equal(status.credits.total, 1240);
+  assert.equal(status.sandbox, false);
+});
+
+test('verify.submitJob returns a processing job', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(202, {
+      id: 'job-1',
+      status: 'processing',
+      total: 2,
+      progress: { total: 2, done: 0 },
+      created_at: '2026-06-10T14:32:00+00:00',
+      expires_at: '2026-06-17T14:32:00+00:00',
+    }),
+  });
+  const job = await es.verify.submitJob({ emails: ['a@b.com', 'c@d.com'] });
+  assert.equal(job.id, 'job-1');
+  assert.equal(job.status, 'processing');
+});
+
+test('guard.recordEvents posts the events array', async () => {
+  let captured;
+  const es = new Emailsherlock('k', {
+    fetch: async (_url, init) => {
+      captured = JSON.parse(init.body);
+      return new Response(null, { status: 202 });
+    },
+  });
+  await es.guard.recordEvents([
+    { verdict: 'disposable', action: 'deny', reasons: ['disposable_provider'], degraded: false, source: 'local' },
+  ]);
+  assert.equal(captured.events.length, 1);
+  assert.equal(captured.events[0].verdict, 'disposable');
+});
+
+test('snake_case wire fields survive on single + batch results (no camelCase rename)', async () => {
+  // Regression guard (EM-951): the generated models keep the wire property
+  // names (modelPropertyNaming: original). A camelCase rename would make the
+  // types declare catchAll/mxRecord while the runtime object stays snake_case.
+  const wire = {
+    email: 'jane@acme.com', result: 'valid', mx: true, mx_record: 'mx1.acme.com',
+    disposable: false, role: false, catch_all: true, free_email: false,
+    score: 0.95, freshness: 'fresh', checked_at: '2026-06-09T14:32:00+00:00',
+    decision: { recommendation: 'allow', reasons: ['mailbox_accepts'] },
+  };
+
+  const single = await new Emailsherlock('k', { fetch: stubFetch(200, wire) })
+    .verify.single({ email: 'jane@acme.com' });
+  assert.equal(single.catch_all, true);
+  assert.equal(single.mx_record, 'mx1.acme.com');
+  assert.equal(single.free_email, false);
+  assert.equal(single.checked_at, '2026-06-09T14:32:00+00:00');
+  assert.equal(single.catchAll, undefined); // proves no camelCase alias
+
+  const { results } = await new Emailsherlock('k', { fetch: stubFetch(200, { results: [wire] }) })
+    .verify.batch({ emails: ['jane@acme.com'] });
+  assert.equal(results[0].catch_all, true);
+  assert.equal(results[0].mx_record, 'mx1.acme.com');
+});
+
 test('missing key throws at construction', () => {
   const saved = process.env.ES_KEY;
   delete process.env.ES_KEY;

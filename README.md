@@ -67,34 +67,52 @@ for (const item of results) {
 | `catch_all`  | boolean   | host accepts mail for any local part                            |
 | `score`      | number / null | 0–1 confidence, higher is safer to send to (`null` when the verdict is `unknown`) |
 | `freshness`  | string    | `fresh` · `cached_recent` · `cached_stale_refreshed`            |
-| `deliverable`| boolean / null | SMTP-proven: `true` only after an SMTP accept, `false` only on a provable failure, `null` when unproven |
-| `reason`     | string / null | why the verdict came out the way it did, e.g. `mailbox_accepts` · `mailbox_not_found` · `no_mx` · `bad_syntax` · `disposable_provider` · `role_address` · `catch_all_domain` · `greylisted` · `smtp_timeout` · `smtp_unreachable` · `verification_pending` |
-| `mx_record`  | string / null | the primary MX host for the domain                          |
-| `free_email` | boolean / null | the address belongs to a free webmail provider             |
-| `checked_at` | string / null | when the check ran, ISO 8601                                |
-| `domain`     | object / null | domain-level intelligence, see below                        |
+| `deliverable`| boolean?  | proven via SMTP: `true` accepted, `false` provably bad, `null` unproven |
+| `reason`     | string?   | why the pipeline decided (`mailbox_accepts`, `greylisted`, …)   |
+| `mx_record`  | string?   | the primary MX host, when one was resolved                      |
+| `free_email` | boolean?  | the domain is a freemail provider                               |
+| `checked_at` | string?   | when the verification ran (ISO 8601)                            |
+| `domain`     | object?   | domain-level intelligence (SPF, DKIM, DMARC, score, blacklists, …) |
+| `decision`   | object    | `{ recommendation: allow·deny·review, reasons[] }`              |
 
-The fields from `deliverable` down are additive and may be missing until the
-API rollout completes; once present they are always set but nullable.
+Every field and model type is generated from the [OpenAPI spec](https://emailsherlock.com/api/docs) and exported, so your editor autocompletes the full shape.
 
-### The domain object
+## Async jobs
 
-| field          | type      | meaning                                                  |
-|----------------|-----------|----------------------------------------------------------|
-| `name`         | string    | the domain part of the address                           |
-| `types`        | string[] / null | host types: `freemail` · `disposable` · `custom` · `company` · `government` · `education` · `public` · `isp` |
-| `score`        | number / null | domain trust score, 0-100, higher is better          |
-| `spf`          | boolean / null | the domain publishes an SPF record                  |
-| `dkim`         | boolean / null | the domain publishes at least one DKIM key          |
-| `dmarc`        | boolean / null | the domain publishes a DMARC record                 |
-| `dmarc_policy` | string / null | `none` · `quarantine` · `reject`                     |
-| `mta_sts`      | boolean / null | the domain publishes an MTA-STS policy              |
-| `tls_rpt`      | boolean / null | the domain publishes a TLS-RPT record               |
-| `bimi`         | boolean / null | the domain publishes a BIMI record                  |
-| `dane`         | boolean / null | the MX hosts publish DANE/TLSA records              |
-| `blacklists`   | number / null | DNS blacklists currently listing the domain's mail IPs |
-| `dnssec`       | string / null | `secure` · `insecure` · `bogus`                      |
-| `caa`          | boolean / null | the domain publishes a CAA record                   |
+For large lists, submit a job and poll it. Every address runs the full pipeline
+including the SMTP probe, so the results carry definitive inbox verdicts:
+
+```js
+const job = await es.verify.submitJob({ emails: ['a@acme.com', 'b@acme.com'] });
+
+let status = job;
+while (status.status !== 'completed') {
+  await new Promise((r) => setTimeout(r, 2000));
+  status = await es.verify.getJob(job.id);
+}
+
+console.log(status.results);
+```
+
+## Account status
+
+```js
+const account = await es.credits();
+account.credits.total; // spendable credits
+account.rateLimit;     // { limit, remaining, reset }
+account.sandbox;       // true on an es_test_ key
+```
+
+## Email-Guard events
+
+Record Email-Guard decision events (free, no credits). The full address is never
+sent, only the domain:
+
+```js
+await es.guard.recordEvents([
+  { domain: 'mailinator.com', verdict: 'disposable', action: 'deny', reasons: ['disposable_provider'], degraded: false, source: 'local' },
+]);
+```
 
 ## Credits and rate limits
 
@@ -115,7 +133,7 @@ Every failure throws a subclass of `EmailsherlockError`:
 | `ForbiddenError`            | 403  | key lacks the endpoint's scope (`requiredScope`) |
 | `InsufficientCreditsError`  | 402  | not enough credits (`creditsRequired`, `creditsRemaining`) |
 | `RateLimitError`            | 429  | rate limit hit (`retryAfter`, `limit`, `remaining`, `reset`) |
-| `ValidationError`           | 400 / 422 | the request body was rejected            |
+| `ValidationError`           | 400 / 404 / 422 | the request was rejected, or the job was not found |
 | `ServiceUnavailableError`   | 503  | verify engine unavailable (the credit is auto-refunded) |
 
 ```js

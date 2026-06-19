@@ -1,6 +1,6 @@
 # @emailsherlock/node
 
-Official Node.js client for the [EmailSherlock](https://emailsherlock.com) email-verification API. Verify one address or a batch over HTTPS with an API key.
+Official Node.js client for the [EmailSherlock](https://emailsherlock.com) email-verification API. Verify one address or a batch over HTTPS with an API key. Get an API key at https://emailsherlock.com/api. Want to try a single address by hand first? The free [email verification](https://emailsherlock.com/verify) tool runs the same checks in the browser.
 
 Zero dependencies. Works on Node 18+ (uses the built-in `fetch`).
 
@@ -65,7 +65,7 @@ for (const item of results) {
 | `disposable` | boolean   | throwaway / temporary-mail provider                             |
 | `role`       | boolean   | role address such as `info@` or `sales@`                        |
 | `catch_all`  | boolean   | host accepts mail for any local part                            |
-| `score`      | number    | 0–1 confidence, higher is safer to send to                      |
+| `score`      | number / null | 0–1 confidence, higher is safer to send to (`null` when the verdict is `unknown`) |
 | `freshness`  | string    | `fresh` · `cached_recent` · `cached_stale_refreshed`            |
 | `deliverable`| boolean?  | proven via SMTP: `true` accepted, `false` provably bad, `null` unproven |
 | `reason`     | string?   | why the pipeline decided (`mailbox_accepts`, `greylisted`, …)   |

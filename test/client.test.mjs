@@ -228,3 +228,70 @@ test('missing key throws at construction', () => {
   assert.throws(() => new Emailsherlock());
   if (saved !== undefined) process.env.ES_KEY = saved;
 });
+
+function recordingFetch() {
+  const seen = [];
+  const fn = async (input, init) => {
+    const req = new Request(input, init);
+    seen.push(req.headers);
+    return new Response(JSON.stringify({ credits: {}, rateLimit: {} }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  return { fn, seen };
+}
+
+test('clientId sends X-Client-Id on every request', async () => {
+  const { fn, seen } = recordingFetch();
+  const es = new Emailsherlock({ apiKey: 'k', fetch: fn, clientId: 42 });
+  assert.equal(es.clientId, 42);
+  await es.credits();
+  assert.equal(seen[0].get('X-Client-Id'), '42');
+});
+
+test('X-Client-Id is absent when clientId is unset', async () => {
+  const { fn, seen } = recordingFetch();
+  const es = new Emailsherlock({ apiKey: 'k', fetch: fn });
+  assert.equal(es.clientId, undefined);
+  await es.credits();
+  assert.equal(seen[0].has('X-Client-Id'), false);
+});
+
+test('withClientId returns a new client and leaves the original unchanged', async () => {
+  const { fn, seen } = recordingFetch();
+  const base = new Emailsherlock({ apiKey: 'k', fetch: fn });
+  const tenant = base.withClientId(7);
+  assert.notEqual(tenant, base);
+  assert.equal(tenant.clientId, 7);
+  assert.equal(base.clientId, undefined);
+  await tenant.credits();
+  await base.credits();
+  assert.equal(seen[0].get('X-Client-Id'), '7');
+  assert.equal(seen[1].has('X-Client-Id'), false);
+});
+
+test('invalid clientId values throw config_error', () => {
+  for (const bad of [0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => new Emailsherlock({ apiKey: 'k', clientId: bad }),
+      (err) => err.code === 'config_error',
+    );
+  }
+  assert.throws(() => new Emailsherlock('k').withClientId(0), (err) => err.code === 'config_error');
+});
+
+test('client_not_found and forbidden keep the server code', async () => {
+  const nf = new Emailsherlock({
+    apiKey: 'k',
+    clientId: 9,
+    fetch: stubFetch(404, { error: { code: 'client_not_found', message: 'nope' } }),
+  });
+  await assert.rejects(nf.credits(), (e) => e.status === 404 && e.code === 'client_not_found');
+  const fb = new Emailsherlock({
+    apiKey: 'k',
+    clientId: 9,
+    fetch: stubFetch(403, { error: { code: 'forbidden', message: 'blocked' } }),
+  });
+  await assert.rejects(fb.credits(), (e) => e.status === 403 && e.code === 'forbidden');
+});

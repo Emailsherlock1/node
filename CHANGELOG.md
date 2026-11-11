@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- `clientId` option and `es.withClientId(id)` send `X-Client-Id`, so a provider key can work inside one of its tenants. Invalid ids throw a `config_error`; the `client_not_found`, `forbidden` and `client_id_not_allowed` server codes are readable on `err.code`.
+
 ## 0.2.0
 
 The client is now generated from the EmailSherlock OpenAPI spec, with a thin

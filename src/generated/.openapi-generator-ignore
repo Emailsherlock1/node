@@ -1,0 +1,8 @@
+# Managed by sdk-gen/bin/generate.sh — the sugar layer owns these.
+package.json
+tsconfig*.json
+README.md
+.npmignore
+.gitignore
+docs/
+docs/**

@@ -1,3 +1,5 @@
+import { ResponseError, FetchError } from './generated/runtime.js';
+
 function num(value: string | null): number | null {
   if (value === null) return null;
   const n = Number(value);
@@ -49,13 +51,21 @@ export class RateLimitError extends EmailsherlockError {
   reset?: number | null;
 }
 
-/** 400 / 422 — the request body was rejected. */
+/** 400 / 404 / 422 — the request was rejected. */
 export class ValidationError extends EmailsherlockError {}
 
 /** 503 — the verify engine could not answer; the credit was auto-refunded. */
 export class ServiceUnavailableError extends EmailsherlockError {}
 
-export function errorFromResponse(
+async function safeJson(response: Response): Promise<ApiErrorEnvelope | null> {
+  try {
+    return (await response.clone().json()) as ApiErrorEnvelope;
+  } catch {
+    return null;
+  }
+}
+
+function fromStatus(
   status: number,
   body: ApiErrorEnvelope | null,
   headers: Headers,
@@ -88,6 +98,7 @@ export function errorFromResponse(
       return err;
     }
     case 400:
+    case 404:
     case 422:
       return new ValidationError(message, opts);
     case 503:
@@ -95,4 +106,30 @@ export function errorFromResponse(
     default:
       return new EmailsherlockError(message, opts);
   }
+}
+
+/**
+ * Map a thrown value from the generated runtime to one of our named errors.
+ * The runtime throws `ResponseError` (carries the `Response`) for non-2xx and
+ * `FetchError` for transport failures. Anything else is rewrapped so callers
+ * only ever catch `EmailsherlockError`.
+ */
+export async function toEmailsherlockError(err: unknown): Promise<EmailsherlockError> {
+  if (err instanceof EmailsherlockError) {
+    return err;
+  }
+  if (err instanceof ResponseError) {
+    const { response } = err;
+    const body = await safeJson(response);
+    return fromStatus(response.status, body, response.headers);
+  }
+  if (err instanceof FetchError) {
+    const reason = err.cause instanceof Error ? err.cause.message : String(err.cause);
+    return new EmailsherlockError(`Request failed: ${reason}`, { code: 'network_error' });
+  }
+  if (err instanceof Error && err.name === 'AbortError') {
+    return new EmailsherlockError('Request timed out.', { code: 'timeout' });
+  }
+  const reason = err instanceof Error ? err.message : String(err);
+  return new EmailsherlockError(reason, { code: 'unknown_error' });
 }

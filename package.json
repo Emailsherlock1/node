@@ -1,6 +1,6 @@
 {
   "name": "@emailsherlock/node",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Official Node.js client for the EmailSherlock email-verification API.",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,7 +34,7 @@
     "smtp",
     "disposable"
   ],
-  "homepage": "https://emailsherlock.com/api/docs",
+  "homepage": "https://www.hostsherlock.com/api/docs",
   "bugs": {
     "url": "https://github.com/Emailsherlock1/node/issues"
   },

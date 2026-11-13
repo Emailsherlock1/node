@@ -150,6 +150,30 @@ try {
 }
 ```
 
+## Working for a tenant (`X-Client-Id`)
+
+If your key belongs to a provider account, you can run a call inside one of its tenants by naming the tenant's numeric id. Usage, verify jobs (and their refunds), deliverability addresses and Guard events then land in that tenant. Without it, the key works in its own account.
+
+```js
+// one client for one tenant
+const es = new Emailsherlock({ apiKey: process.env.ES_KEY, clientId: 123 });
+
+// or derive tenant clients from one key
+const base = new Emailsherlock(process.env.ES_KEY);
+const tenant = base.withClientId(123); // new client, `base` is unchanged
+tenant.clientId; // 123
+```
+
+`withClientId()` keeps the key, base URL, fetch and timeout, and each client tracks its own credits and rate limit. Poll a job with the same client you submitted it with, because a job belongs to the tenant it was submitted for. `clientId` must be a positive integer, otherwise the constructor throws a `config_error`.
+
+Three errors are specific to this header, and `err.code` holds the server code:
+
+| HTTP | `err.code`              | class             | when                                                   |
+|------|-------------------------|-------------------|--------------------------------------------------------|
+| 404  | `client_not_found`      | `ValidationError` | the id is not a tenant your key may reach              |
+| 403  | `forbidden`             | `ForbiddenError`  | the tenant is blocked from the API                     |
+| 400  | `client_id_not_allowed` | `ValidationError` | your key is not a provider key (even an empty header)  |
+
 ## Options
 
 ```js
@@ -158,6 +182,7 @@ new Emailsherlock({
   baseUrl: 'https://api.emailsherlock.com', // default
   timeoutMs: 30000,                          // default
   fetch: customFetch,                        // optional injection
+  clientId: 123,                             // optional, provider keys only
 });
 ```
 

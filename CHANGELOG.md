@@ -8,6 +8,7 @@ this release adds the endpoints and result fields the API already served.
 
 ### Added
 
+- `clientId` option and `es.withClientId(id)` send `X-Client-Id`, so a provider key can work inside one of its tenants. Invalid ids throw a `config_error`; the `client_not_found`, `forbidden` and `client_id_not_allowed` server codes are readable on `err.code`.
 - `es.credits()` reads the account status (credit buckets, rate limit, plan, sandbox flag).
 - `es.verify.submitJob({ emails })` and `es.verify.getJob(id)` for asynchronous verification jobs.
 - `es.guard.recordEvents(events)` records Email-Guard decision events.

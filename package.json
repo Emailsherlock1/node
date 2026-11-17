@@ -34,7 +34,7 @@
     "smtp",
     "disposable"
   ],
-  "homepage": "https://emailsherlock.com/api/docs",
+  "homepage": "https://www.hostsherlock.com/api/docs",
   "bugs": {
     "url": "https://github.com/Emailsherlock1/node/issues"
   },

@@ -1,6 +1,21 @@
+import {
+  Configuration,
+  VerifyApi,
+  AccountApi,
+  GuardApi,
+  type Middleware,
+  type ResponseContext,
+} from './generated/index.js';
+import type {
+  VerifyResultResponse,
+  VerifyBatchResponse,
+  VerifyJobResponse,
+  AccountStatusResponse,
+  GuardEventsRequest,
+} from './generated/index.js';
 import { VERSION } from './version.js';
-import { errorFromResponse, EmailsherlockError } from './errors.js';
-import type { VerifyResult, BatchResponse, RateLimit } from './types.js';
+import { EmailsherlockError, toEmailsherlockError } from './errors.js';
+import type { RateLimit } from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.emailsherlock.com';
 
@@ -21,48 +36,66 @@ function num(value: string | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function safeParse(text: string): unknown {
+/** Run a generated-client call, mapping any failure to a named error. */
+async function call<T>(fn: () => Promise<T>): Promise<T> {
   try {
-    return JSON.parse(text);
-  } catch {
-    return null;
+    return await fn();
+  } catch (err) {
+    throw await toEmailsherlockError(err);
   }
 }
 
 /** Verify-endpoint methods, reached as `client.verify`. */
 export class VerifyResource {
-  constructor(private readonly client: Emailsherlock) {}
+  constructor(private readonly api: VerifyApi) {}
 
   /** Verify a single address. */
-  single(params: { email: string }): Promise<VerifyResult> {
-    return this.client.request<VerifyResult>('/v1/verify/single', { email: params.email });
+  single(params: { email: string }): Promise<VerifyResultResponse> {
+    return call(() => this.api.verifySingle({ verifySingleRequest: { email: params.email } }));
   }
 
-  /** Verify up to 100 addresses in one call. */
-  batch(params: { emails: string[] }): Promise<BatchResponse> {
-    return this.client.request<BatchResponse>('/v1/verify/batch', { emails: params.emails });
+  /** Verify a batch of addresses in one call. */
+  batch(params: { emails: string[] }): Promise<VerifyBatchResponse> {
+    return call(() => this.api.verifyBatch({ verifyBatchRequest: { emails: params.emails } }));
+  }
+
+  /** Submit a list of addresses for asynchronous verification. Poll with `getJob`. */
+  submitJob(params: { emails: string[] }): Promise<VerifyJobResponse> {
+    return call(() => this.api.submitVerifyJob({ verifyJobRequest: { emails: params.emails } }));
+  }
+
+  /** Read the status and results of a verification job. */
+  getJob(id: string): Promise<VerifyJobResponse> {
+    return call(() => this.api.getVerifyJob({ id }));
+  }
+}
+
+/** Email-Guard event methods, reached as `client.guard`. */
+export class GuardResource {
+  constructor(private readonly api: GuardApi) {}
+
+  /** Record a batch of Email-Guard decision events (free, no credits). */
+  recordEvents(events: GuardEventsRequest['events']): Promise<void> {
+    return call(() => this.api.recordGuardEvents({ guardEventsRequest: { events } }));
   }
 }
 
 export class Emailsherlock {
   readonly verify: VerifyResource;
+  readonly guard: GuardResource;
 
   /** Credits left after the most recent request (from X-Credits-Remaining). */
   creditsRemaining: number | null = null;
   /** Rate-limit window after the most recent request (from X-RateLimit-*). */
   rateLimit: RateLimit = { limit: null, remaining: null, reset: null };
 
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly timeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
+  private readonly account: AccountApi;
 
   constructor(apiKey?: string | ClientOptions, options: ClientOptions = {}) {
     const opts: ClientOptions =
       typeof apiKey === 'string' ? { ...options, apiKey } : (apiKey ?? {});
 
-    const key =
-      opts.apiKey ?? process.env.ES_KEY ?? process.env.EMAILSHERLOCK_API_KEY;
+    const key = opts.apiKey ?? process.env.ES_KEY ?? process.env.EMAILSHERLOCK_API_KEY;
     if (!key) {
       throw new EmailsherlockError(
         'No API key provided. Pass it to the constructor or set ES_KEY.',
@@ -70,57 +103,56 @@ export class Emailsherlock {
       );
     }
 
-    const fetchImpl = opts.fetch ?? globalThis.fetch;
-    if (!fetchImpl) {
+    const baseFetch = opts.fetch ?? globalThis.fetch;
+    if (!baseFetch) {
       throw new EmailsherlockError(
         'No fetch implementation available. Use Node 18+ or pass options.fetch.',
         { code: 'config_error' },
       );
     }
 
-    this.apiKey = key;
-    this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-    this.timeoutMs = opts.timeoutMs ?? 30_000;
-    this.fetchImpl = fetchImpl;
-    this.verify = new VerifyResource(this);
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+
+    // Capture credit + rate-limit headers off every response, success or error.
+    const captureMeta: Middleware = {
+      post: async (context: ResponseContext): Promise<void> => {
+        this.captureMeta(context.response.headers);
+      },
+    };
+
+    const configuration = new Configuration({
+      basePath: (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
+      apiKey: key, // sets the X-API-Key header for ApiKeyAuth
+      headers: { 'User-Agent': `emailsherlock-node/${VERSION}` },
+      fetchApi: this.withTimeout(baseFetch, timeoutMs),
+      middleware: [captureMeta],
+    });
+
+    this.verify = new VerifyResource(new VerifyApi(configuration));
+    this.guard = new GuardResource(new GuardApi(configuration));
+    this.account = new AccountApi(configuration);
   }
 
-  /** Low-level POST. Most callers should use `client.verify.*` instead. */
-  async request<T>(path: string, body: unknown): Promise<T> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+  /** Read the credit balance and rate-limit status. Free: consumes no credits. */
+  credits(): Promise<AccountStatusResponse> {
+    return call(() => this.account.getCredits());
+  }
 
-    let res: Response;
-    try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': this.apiKey,
-          'Content-Type': 'application/json',
-          'User-Agent': `emailsherlock-node/${VERSION}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      throw new EmailsherlockError(`Request to ${path} failed: ${reason}`, {
-        code: 'network_error',
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    this.captureMeta(res.headers);
-
-    const text = await res.text();
-    const json = text ? safeParse(text) : null;
-
-    if (!res.ok) {
-      throw errorFromResponse(res.status, json as never, res.headers);
-    }
-
-    return json as T;
+  private withTimeout(baseFetch: typeof fetch, timeoutMs: number): typeof fetch {
+    return async (input, init) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const upstream = init?.signal;
+      if (upstream) {
+        if (upstream.aborted) controller.abort();
+        else upstream.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+      try {
+        return await baseFetch(input, { ...init, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
   }
 
   private captureMeta(headers: Headers): void {

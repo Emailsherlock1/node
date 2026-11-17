@@ -75,7 +75,7 @@ for (const item of results) {
 | `domain`     | object?   | domain-level intelligence (SPF, DKIM, DMARC, score, blacklists, …) |
 | `decision`   | object    | `{ recommendation: allow·deny·review, reasons[] }`              |
 
-Every field and model type is generated from the [OpenAPI spec](https://emailsherlock.com/api/docs) and exported, so your editor autocompletes the full shape.
+Every field and model type is generated from the [OpenAPI spec](https://www.hostsherlock.com/api/docs) and exported, so your editor autocompletes the full shape.
 
 ## Async jobs
 

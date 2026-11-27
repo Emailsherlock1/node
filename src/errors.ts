@@ -86,7 +86,7 @@ function fromStatus(
     case 402: {
       const err = new InsufficientCreditsError(message, opts);
       err.creditsRequired = num(headers.get('X-Credits-Required'));
-      err.creditsRemaining = num(headers.get('X-Credits-Remaining'));
+      err.creditsRemaining = num(headers.get('X-Probe-Credits-Remaining') ?? headers.get('X-Credits-Remaining'));
       return err;
     }
     case 429: {

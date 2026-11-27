@@ -233,7 +233,26 @@ export class Emailsherlock {
   /** The tenant this client works in, or undefined for the key's own account. */
   readonly clientId?: number;
 
-  /** Credits left after the most recent request (from X-Credits-Remaining). */
+  /**
+   * Probe credits left, as the most recent response that carried the balance
+   * reported it (X-Probe-Credits-Remaining, or its older name
+   * X-Credits-Remaining). Probe credits pay for deep verify of catch-all and
+   * unknown addresses. Null until a response carries the header.
+   */
+  probeCreditsRemaining: number | null = null;
+  /**
+   * Free standard verifies left this month, as the most recent response that
+   * carried the balance reported it (X-Validations-Remaining, or its older name
+   * X-Verify-Free-Remaining). The API omits the header on a paid plan, where
+   * standard verify is unlimited, so it stays null there.
+   */
+  validationsRemaining: number | null = null;
+  /**
+   * Same value as `probeCreditsRemaining`, under the name this SDK used before
+   * the API split the two balances.
+   *
+   * @deprecated since 0.5.0, read `probeCreditsRemaining` or `validationsRemaining`.
+   */
   creditsRemaining: number | null = null;
   /** Rate-limit window after the most recent request (from X-RateLimit-*). */
   rateLimit: RateLimit = { limit: null, remaining: null, reset: null };
@@ -333,9 +352,14 @@ export class Emailsherlock {
   }
 
   private captureMeta(headers: Headers): void {
-    const credits = headers.get('X-Credits-Remaining');
-    if (credits !== null) {
-      this.creditsRemaining = num(credits);
+    const probe = headers.get('X-Probe-Credits-Remaining') ?? headers.get('X-Credits-Remaining');
+    if (probe !== null) {
+      this.probeCreditsRemaining = num(probe);
+      this.creditsRemaining = this.probeCreditsRemaining;
+    }
+    const validations = headers.get('X-Validations-Remaining') ?? headers.get('X-Verify-Free-Remaining');
+    if (validations !== null) {
+      this.validationsRemaining = num(validations);
     }
     if (headers.get('X-RateLimit-Limit') !== null) {
       this.rateLimit = {

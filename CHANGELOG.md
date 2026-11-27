@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- `es.probeCreditsRemaining` and `es.validationsRemaining`: the two balances the API reports, read from `X-Probe-Credits-Remaining` and `X-Validations-Remaining` (falling back to the older header names). `validationsRemaining` stays `null` on a paid plan, where standard verify is unlimited.
+
+### Changed
+
+- `InsufficientCreditsError.creditsRemaining` reads `X-Probe-Credits-Remaining` first.
+
+### Deprecated
+
+- `es.creditsRemaining`: holds the same value as `probeCreditsRemaining`.
+
 ## 0.4.0
 
 ### Added

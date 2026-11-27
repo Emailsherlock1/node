@@ -196,12 +196,17 @@ The identity list goes in `protected`, the field name the API reads.
 
 ## Credits and rate limits
 
-After every call the client exposes what the response headers reported:
+Two balances apply. Standard verify draws on your monthly validations, deep verify
+of catch-all and unknown addresses draws probe credits. After every call the client
+exposes what the response headers reported:
 
 ```js
-es.creditsRemaining;   // e.g. 41
-es.rateLimit;          // { limit, remaining, reset }
+es.probeCreditsRemaining;  // e.g. 41
+es.validationsRemaining;   // e.g. 950, or null on a paid plan (unlimited)
+es.rateLimit;              // { limit, remaining, reset }
 ```
+
+`es.creditsRemaining` still holds the probe-credit balance and is deprecated.
 
 ## Errors
 

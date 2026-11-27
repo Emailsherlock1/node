@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   Emailsherlock,
+  EmailsherlockError,
   AuthenticationError,
+  ForbiddenError,
   InsufficientCreditsError,
   RateLimitError,
   isVerifyResult,
@@ -294,4 +296,250 @@ test('client_not_found and forbidden keep the server code', async () => {
     fetch: stubFetch(403, { error: { code: 'forbidden', message: 'blocked' } }),
   });
   await assert.rejects(fb.credits(), (e) => e.status === 403 && e.code === 'forbidden');
+});
+
+// --- 0.4.0 endpoint groups -------------------------------------------------
+
+function captureFetch(status, body, headers = {}) {
+  const calls = [];
+  const fn = async (input, init) => {
+    const req = new Request(input, init);
+    const text = await req.text();
+    calls.push({
+      method: req.method,
+      url: new URL(req.url),
+      headers: req.headers,
+      body: text === '' ? undefined : JSON.parse(text),
+    });
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json', ...headers },
+    });
+  };
+  return { fn, calls };
+}
+
+function clientWith(status, body, headers) {
+  const cap = captureFetch(status, body, headers);
+  return { es: new Emailsherlock({ apiKey: 'k', fetch: cap.fn }), calls: cap.calls };
+}
+
+// An IDN domain, so the tests see the path segment percent-encoded.
+const IDN = 'bücher.de';
+const IDN_PATH = 'b%C3%BCcher.de';
+
+test('deliverability.listAddresses GETs the address list', async () => {
+  const { es, calls } = clientWith(200, {
+    addresses: [{ id: 5, label: 'Seed', address: 'seed@check.example', active: true, has_webhook: false, latest_verdict: null, created_at: '2026-11-01T00:00:00+00:00' }],
+  });
+  const res = await es.deliverability.listAddresses();
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/addresses');
+  assert.equal(calls[0].url.search, '');
+  assert.equal(res.addresses[0].id, 5);
+});
+
+test('deliverability.latest GETs the latest verdict', async () => {
+  const { es, calls } = clientWith(200, { address_id: 5, has_result: false, verdict: null });
+  const res = await es.deliverability.latest(5);
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/addresses/5/latest');
+  assert.equal(res.has_result, false);
+});
+
+test('deliverability.listChecks sends only the paging the caller set', async () => {
+  const { es, calls } = clientWith(200, { address_id: 5, limit: 10, offset: 0, count: 0, checks: [] });
+  const res = await es.deliverability.listChecks(5, { limit: 10 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/addresses/5/checks');
+  assert.equal(calls[0].url.search, '?limit=10');
+  assert.equal(res.limit, 10);
+
+  await es.deliverability.listChecks(5);
+  assert.equal(calls[1].url.search, '');
+});
+
+test('deliverability.getCheck GETs one check', async () => {
+  const { es, calls } = clientWith(200, { id: 77, address_id: 5, result: { score: 9 } });
+  const res = await es.deliverability.getCheck(77);
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/checks/77');
+  assert.equal(res.id, 77);
+});
+
+test('deliverability.setWebhook PUTs the url and returns the secret', async () => {
+  const { es, calls } = clientWith(200, { address_id: 5, webhook: { url: 'https://hooks.example.com/x', secret: 'whsec_1' } });
+  const res = await es.deliverability.setWebhook(5, { url: 'https://hooks.example.com/x' });
+  assert.equal(calls[0].method, 'PUT');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/addresses/5/webhook');
+  assert.equal(calls[0].headers.get('Content-Type'), 'application/json');
+  assert.deepEqual(calls[0].body, { url: 'https://hooks.example.com/x' });
+  assert.equal(res.webhook.secret, 'whsec_1');
+});
+
+test('deliverability.deleteWebhook DELETEs the webhook', async () => {
+  const { es, calls } = clientWith(200, { address_id: 5, webhook: null });
+  const res = await es.deliverability.deleteWebhook(5);
+  assert.equal(calls[0].method, 'DELETE');
+  assert.equal(calls[0].url.pathname, '/v1/deliverability/addresses/5/webhook');
+  assert.equal(calls[0].body, undefined);
+  assert.equal(res.webhook, null);
+});
+
+const SETUP = {
+  domain: IDN,
+  status: 'not_found',
+  confirmed: false,
+  record: null,
+  dns_provider: null,
+  watch_slots: { used: 1, limit: 3 },
+};
+
+test('dmarc.start POSTs to the domain setup path', async () => {
+  const { es, calls } = clientWith(200, SETUP);
+  const res = await es.dmarc.start(IDN);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].url.pathname, `/v1/domains/${IDN_PATH}/dmarc`);
+  assert.equal(res.status, 'not_found');
+});
+
+test('dmarc.check POSTs to the check path', async () => {
+  const { es, calls } = clientWith(200, { ...SETUP, status: 'ok', confirmed: true });
+  const res = await es.dmarc.check(IDN);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].url.pathname, `/v1/domains/${IDN_PATH}/dmarc/check`);
+  assert.equal(res.confirmed, true);
+});
+
+test('dmarc.summary sends range', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, range_days: 7, message_count: 120, aligned_messages: 100, source_count: 3, known_source_count: 2, unknown_source_count: 1, new_source_count: 0, failing_source_count: 1 });
+  const res = await es.dmarc.summary(IDN, { range: 7 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/dmarc/${IDN_PATH}/summary`);
+  assert.equal(calls[0].url.search, '?range=7');
+  assert.equal(res.message_count, 120);
+});
+
+test('dmarc.reports sends the filters and paging', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, limit: 20, offset: 40, count: 0, next_offset: null, reports: [] });
+  const res = await es.dmarc.reports(IDN, { from: '2026-11-01', to: '2026-11-20', reporter: 'google.com', limit: 20, offset: 40 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/dmarc/${IDN_PATH}/reports`);
+  assert.deepEqual(Object.fromEntries(calls[0].url.searchParams), {
+    from: '2026-11-01', to: '2026-11-20', reporter: 'google.com', limit: '20', offset: '40',
+  });
+  assert.equal(res.offset, 40);
+});
+
+test('dmarc.sources sends range, result, check and paging', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, range_days: 30, limit: 5, offset: 0, count: 0, next_offset: null, sources: [] });
+  const res = await es.dmarc.sources(IDN, { range: 30, result: 'fail', check: 'spf', limit: 5, offset: 0 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/dmarc/${IDN_PATH}/sources`);
+  assert.deepEqual(Object.fromEntries(calls[0].url.searchParams), {
+    range: '30', result: 'fail', check: 'spf', limit: '5', offset: '0',
+  });
+  assert.deepEqual(res.sources, []);
+});
+
+test('tlsRpt.reports sends range and paging', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, range_days: 7, limit: 10, offset: 10, count: 0, next_offset: null, reports: [] });
+  const res = await es.tlsRpt.reports(IDN, { range: 7, limit: 10, offset: 10 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/tls-rpt/${IDN_PATH}/reports`);
+  assert.deepEqual(Object.fromEntries(calls[0].url.searchParams), { range: '7', limit: '10', offset: '10' });
+  assert.equal(res.range_days, 7);
+});
+
+test('domains.changes sends paging', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, limit: 25, offset: 0, count: 0, next_offset: null, changes: [] });
+  const res = await es.domains.changes(IDN, { limit: 25 });
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/domains/${IDN_PATH}/changes`);
+  assert.equal(calls[0].url.search, '?limit=25');
+  assert.equal(res.limit, 25);
+});
+
+test('domains.nextSteps GETs the next steps', async () => {
+  const { es, calls } = clientWith(200, { domain: IDN, policy: { tag: 'p', value: 'none' }, ladder: null, unaligned_sources: [], findings: [] });
+  const res = await es.domains.nextSteps(IDN);
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].url.pathname, `/v1/domains/${IDN_PATH}/next-steps`);
+  assert.equal(calls[0].url.search, '');
+  assert.equal(res.policy.value, 'none');
+});
+
+test('impersonation.analyze POSTs the body with the wire field "protected"', async () => {
+  const { es, calls } = clientWith(
+    200,
+    { risk: 'high', score: 70, identity: 'Jane Doe', reasons: [{ reason: 'display_name', weight: 40, detail: 'Jane Doe' }] },
+    { 'X-Credits-Remaining': '99' },
+  );
+  const request = {
+    from: 'jane.doe@gmail.com',
+    display_name: 'Jane Doe',
+    protected: [{ name: 'Jane Doe', domains: ['acme.com'] }],
+  };
+  const res = await es.impersonation.analyze(request);
+  assert.equal(calls[0].method, 'POST');
+  assert.equal(calls[0].url.pathname, '/v1/impersonation/analyze');
+  assert.deepEqual(calls[0].body, request);
+  assert.equal(calls[0].body._protected, undefined);
+  assert.equal(res.risk, 'high');
+  assert.equal(res.reasons[0].reason, 'display_name');
+  assert.equal(es.creditsRemaining, 99);
+});
+
+test('402 on impersonation.analyze throws InsufficientCreditsError', async () => {
+  const { es } = clientWith(
+    402,
+    { error: { code: 'insufficient_credits', message: 'Not enough credits.' } },
+    { 'X-Credits-Required': '1', 'X-Credits-Remaining': '0' },
+  );
+  await assert.rejects(
+    () => es.impersonation.analyze({ from: 'a@b.com', protected: [{ name: 'Jane' }] }),
+    (e) => {
+      assert.ok(e instanceof InsufficientCreditsError);
+      assert.equal(e.status, 402);
+      assert.equal(e.creditsRequired, 1);
+      assert.equal(e.creditsRemaining, 0);
+      return true;
+    },
+  );
+});
+
+test('403 on a dmarc read throws ForbiddenError with the server code', async () => {
+  const { es } = clientWith(403, { error: { code: 'forbidden', message: 'No report address in the DMARC record.' } });
+  await assert.rejects(() => es.dmarc.summary(IDN), (e) => {
+    assert.ok(e instanceof ForbiddenError);
+    assert.equal(e.status, 403);
+    assert.equal(e.code, 'forbidden');
+    return true;
+  });
+});
+
+test('409 on dmarc.start falls through to the base EmailsherlockError', async () => {
+  const { es } = clientWith(409, { error: { code: 'watch_limit_reached', message: 'Plan limit reached.' } });
+  await assert.rejects(() => es.dmarc.start(IDN), (e) => {
+    assert.equal(e.constructor, EmailsherlockError);
+    assert.equal(e.status, 409);
+    assert.equal(e.code, 'watch_limit_reached');
+    return true;
+  });
+});
+
+test('rate-limit headers are captured on a new endpoint', async () => {
+  const { es } = clientWith(200, { addresses: [] }, { 'X-RateLimit-Limit': '60', 'X-RateLimit-Remaining': '12', 'X-RateLimit-Reset': '1700000000' });
+  await es.deliverability.listAddresses();
+  assert.deepEqual(es.rateLimit, { limit: 60, remaining: 12, reset: 1700000000 });
+});
+
+test('X-Client-Id reaches a new endpoint on a withClientId() client', async () => {
+  const cap = captureFetch(200, { domain: IDN, limit: 50, offset: 0, count: 0, next_offset: null, changes: [] });
+  const base = new Emailsherlock({ apiKey: 'k', fetch: cap.fn });
+  await base.withClientId(42).domains.changes(IDN);
+  await base.domains.changes(IDN);
+  assert.equal(cap.calls[0].headers.get('X-Client-Id'), '42');
+  assert.equal(cap.calls[0].headers.get('X-API-Key'), 'k');
+  assert.equal(cap.calls[1].headers.has('X-Client-Id'), false);
 });

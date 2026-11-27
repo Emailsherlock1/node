@@ -1,5 +1,9 @@
 apis/AccountApi.ts
+apis/DeliverabilityApi.ts
+apis/DomainReportsApi.ts
+apis/DomainSetupApi.ts
 apis/GuardApi.ts
+apis/ImpersonationApi.ts
 apis/VerifyApi.ts
 apis/index.ts
 index.ts

@@ -28,6 +28,11 @@ export interface ClientOptions {
   timeoutMs?: number;
   /** Inject a fetch implementation. Defaults to the global fetch (Node 18+). */
   fetch?: typeof fetch;
+  /**
+   * Work inside one of your tenants: the numeric id of a tenant of your provider
+   * account. Sent as `X-Client-Id` on every request. Only provider keys may set it.
+   */
+  clientId?: number;
 }
 
 function num(value: string | null): number | null {
@@ -83,6 +88,8 @@ export class GuardResource {
 export class Emailsherlock {
   readonly verify: VerifyResource;
   readonly guard: GuardResource;
+  /** The tenant this client works in, or undefined for the key's own account. */
+  readonly clientId?: number;
 
   /** Credits left after the most recent request (from X-Credits-Remaining). */
   creditsRemaining: number | null = null;
@@ -90,6 +97,7 @@ export class Emailsherlock {
   rateLimit: RateLimit = { limit: null, remaining: null, reset: null };
 
   private readonly account: AccountApi;
+  private readonly resolved: ClientOptions & { apiKey: string };
 
   constructor(apiKey?: string | ClientOptions, options: ClientOptions = {}) {
     const opts: ClientOptions =
@@ -113,6 +121,15 @@ export class Emailsherlock {
 
     const timeoutMs = opts.timeoutMs ?? 30_000;
 
+    const clientId = opts.clientId;
+    if (clientId !== undefined && (!Number.isSafeInteger(clientId) || clientId <= 0)) {
+      throw new EmailsherlockError('clientId must be a positive integer.', {
+        code: 'config_error',
+      });
+    }
+    this.clientId = clientId;
+    this.resolved = { apiKey: key, baseUrl: opts.baseUrl, timeoutMs, fetch: baseFetch };
+
     // Capture credit + rate-limit headers off every response, success or error.
     const captureMeta: Middleware = {
       post: async (context: ResponseContext): Promise<void> => {
@@ -123,7 +140,10 @@ export class Emailsherlock {
     const configuration = new Configuration({
       basePath: (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ''),
       apiKey: key, // sets the X-API-Key header for ApiKeyAuth
-      headers: { 'User-Agent': `emailsherlock-node/${VERSION}` },
+      headers: {
+        'User-Agent': `emailsherlock-node/${VERSION}`,
+        ...(clientId !== undefined ? { 'X-Client-Id': String(clientId) } : {}),
+      },
       fetchApi: this.withTimeout(baseFetch, timeoutMs),
       middleware: [captureMeta],
     });
@@ -136,6 +156,15 @@ export class Emailsherlock {
   /** Read the credit balance and rate-limit status. Free: consumes no credits. */
   credits(): Promise<AccountStatusResponse> {
     return call(() => this.account.getCredits());
+  }
+
+  /**
+   * Return a new client that works in the given tenant, with the same key,
+   * base URL, fetch and timeout. This client stays unchanged and keeps its own
+   * credits and rate-limit meta.
+   */
+  withClientId(clientId: number): Emailsherlock {
+    return new Emailsherlock({ ...this.resolved, clientId });
   }
 
   private withTimeout(baseFetch: typeof fetch, timeoutMs: number): typeof fetch {

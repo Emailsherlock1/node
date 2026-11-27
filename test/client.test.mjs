@@ -131,6 +131,53 @@ test('401 throws AuthenticationError', async () => {
   });
 });
 
+const VALID = { email: 'jane@acme.com', result: 'valid', mx: true, disposable: false, role: false, catch_all: false };
+
+test('reads both balances from their current headers (EM-4987)', async () => {
+  // The alias X-Credits-Remaining carries another value on purpose, so the test
+  // fails if the client still reads the alias first.
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(200, VALID, {
+      'X-Probe-Credits-Remaining': '41',
+      'X-Credits-Remaining': '7',
+      'X-Validations-Remaining': '950',
+      'X-Verify-Free-Remaining': '3',
+    }),
+  });
+  await es.verify.single({ email: 'jane@acme.com' });
+  assert.equal(es.probeCreditsRemaining, 41);
+  assert.equal(es.validationsRemaining, 950);
+  assert.equal(es.creditsRemaining, 41);
+});
+
+test('falls back to the legacy balance headers', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(200, VALID, { 'X-Credits-Remaining': '12', 'X-Verify-Free-Remaining': '30' }),
+  });
+  await es.verify.single({ email: 'jane@acme.com' });
+  assert.equal(es.probeCreditsRemaining, 12);
+  assert.equal(es.validationsRemaining, 30);
+  assert.equal(es.creditsRemaining, 12);
+});
+
+test('validationsRemaining stays null when the plan is unlimited', async () => {
+  const es = new Emailsherlock('k', { fetch: stubFetch(200, VALID, { 'X-Probe-Credits-Remaining': '41' }) });
+  await es.verify.single({ email: 'jane@acme.com' });
+  assert.equal(es.validationsRemaining, null);
+  assert.equal(es.probeCreditsRemaining, 41);
+});
+
+test('402 prefers X-Probe-Credits-Remaining', async () => {
+  const es = new Emailsherlock('k', {
+    fetch: stubFetch(402, { error: { code: 'insufficient_credits', message: 'Not enough credits.' } }, { 'X-Probe-Credits-Remaining': '2', 'X-Credits-Remaining': '9' }),
+  });
+  await assert.rejects(() => es.verify.single({ email: 'a@b.com' }), (e) => {
+    assert.ok(e instanceof InsufficientCreditsError);
+    assert.equal(e.creditsRemaining, 2);
+    return true;
+  });
+});
+
 test('402 carries credit headers', async () => {
   const es = new Emailsherlock('k', {
     fetch: stubFetch(402, { error: { code: 'insufficient_credits', message: 'Not enough credits.' } }, { 'X-Credits-Required': '1', 'X-Credits-Remaining': '0' }),

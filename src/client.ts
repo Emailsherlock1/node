@@ -3,6 +3,10 @@ import {
   VerifyApi,
   AccountApi,
   GuardApi,
+  DeliverabilityApi,
+  DomainReportsApi,
+  DomainSetupApi,
+  ImpersonationApi,
   type Middleware,
   type ResponseContext,
 } from './generated/index.js';
@@ -12,10 +16,33 @@ import type {
   VerifyJobResponse,
   AccountStatusResponse,
   GuardEventsRequest,
+  ListCheckAddresses200Response,
+  DeliverabilityLatestVerdictResource,
+  ListChecks200Response,
+  GetCheck200Response,
+  DeliverabilityWebhookResource,
+  DmarcSetupResource,
+  DmarcSummaryResource,
+  ListDmarcReports200Response,
+  ListDmarcSources200Response,
+  ListTlsRptReports200Response,
+  ListDomainChanges200Response,
+  NextStepsResource,
+  ImpersonationAnalyzeRequest,
+  ImpersonationAnalyzeResponse,
 } from './generated/index.js';
 import { VERSION } from './version.js';
 import { EmailsherlockError, toEmailsherlockError } from './errors.js';
-import type { RateLimit } from './types.js';
+import type {
+  RateLimit,
+  ListChecksOptions,
+  DmarcSummaryOptions,
+  DmarcReportsOptions,
+  DmarcSourcesOptions,
+  TlsRptReportsOptions,
+  DomainChangesOptions,
+  ImpersonationAnalyzeParams,
+} from './types.js';
 
 const DEFAULT_BASE_URL = 'https://api.emailsherlock.com';
 
@@ -85,9 +112,124 @@ export class GuardResource {
   }
 }
 
+/** Deliverability check-address methods, reached as `client.deliverability`. Free: no credits. */
+export class DeliverabilityResource {
+  constructor(private readonly api: DeliverabilityApi) {}
+
+  /** List your check addresses, each with its latest verdict. */
+  listAddresses(): Promise<ListCheckAddresses200Response> {
+    return call(() => this.api.listCheckAddresses());
+  }
+
+  /** The pre-send gate: the latest cached verdict for an address (no live probe). */
+  latest(id: number): Promise<DeliverabilityLatestVerdictResource> {
+    return call(() => this.api.getLatestVerdict({ id }));
+  }
+
+  /** The check log for one address, newest first. */
+  listChecks(id: number, options: ListChecksOptions = {}): Promise<ListChecks200Response> {
+    return call(() => this.api.listChecks({ ...options, id }));
+  }
+
+  /** One check with its full audit breakdown. */
+  getCheck(id: number): Promise<GetCheck200Response> {
+    return call(() => this.api.getCheck({ id }));
+  }
+
+  /** Set or replace the check.completed webhook for an address. The response carries the signing secret this one time. */
+  setWebhook(id: number, params: { url: string }): Promise<DeliverabilityWebhookResource> {
+    return call(() => this.api.setCheckWebhook({ id, setCheckWebhookRequest: { url: params.url } }));
+  }
+
+  /** Remove the check.completed webhook for an address. */
+  deleteWebhook(id: number): Promise<DeliverabilityWebhookResource> {
+    return call(() => this.api.deleteCheckWebhook({ id }));
+  }
+}
+
+/** DMARC setup and report methods, reached as `client.dmarc`. Free: no credits. */
+export class DmarcResource {
+  constructor(
+    private readonly setup: DomainSetupApi,
+    private readonly reportsApi: DomainReportsApi,
+  ) {}
+
+  /** Start DMARC monitoring for a domain and get the DNS record to publish. */
+  start(domain: string): Promise<DmarcSetupResource> {
+    return call(() => this.setup.startDmarcMonitoring({ domain }));
+  }
+
+  /** Look up a watched domain's DMARC record again and say whether it carries your report address. */
+  check(domain: string): Promise<DmarcSetupResource> {
+    return call(() => this.setup.checkDmarcSetup({ domain }));
+  }
+
+  /** Totals of a domain's DMARC reports over 7 or 30 days. Needs your report address in the domain's DMARC record. */
+  summary(domain: string, options: DmarcSummaryOptions = {}): Promise<DmarcSummaryResource> {
+    return call(() => this.reportsApi.getDmarcSummary({ ...options, domain }));
+  }
+
+  /** A domain's DMARC aggregate reports, newest first. Needs your report address in the domain's DMARC record. */
+  reports(domain: string, options: DmarcReportsOptions = {}): Promise<ListDmarcReports200Response> {
+    return call(() => this.reportsApi.listDmarcReports({ ...options, domain }));
+  }
+
+  /** The sending sources seen in a domain's DMARC reports. Needs your report address in the domain's DMARC record. */
+  sources(domain: string, options: DmarcSourcesOptions = {}): Promise<ListDmarcSources200Response> {
+    return call(() => this.reportsApi.listDmarcSources({ ...options, domain }));
+  }
+}
+
+/** TLS-RPT report methods, reached as `client.tlsRpt`. Free: no credits. */
+export class TlsRptResource {
+  constructor(private readonly api: DomainReportsApi) {}
+
+  /** The TLS-RPT reports your account received for a domain, newest first. Needs your report address in the domain's TLS-RPT record. */
+  reports(domain: string, options: TlsRptReportsOptions = {}): Promise<ListTlsRptReports200Response> {
+    return call(() => this.api.listTlsRptReports({ ...options, domain }));
+  }
+}
+
+/** Methods on a domain you watch, reached as `client.domains`. Free: no credits. */
+export class DomainsResource {
+  constructor(private readonly api: DomainReportsApi) {}
+
+  /** The timeline of a domain you watch: DNS, record and mail changes, newest first. */
+  changes(domain: string, options: DomainChangesOptions = {}): Promise<ListDomainChanges200Response> {
+    return call(() => this.api.listDomainChanges({ ...options, domain }));
+  }
+
+  /** What to change next on a domain you own, on the way to p=reject. Needs your report address in the domain's DMARC record. */
+  nextSteps(domain: string): Promise<NextStepsResource> {
+    return call(() => this.api.getDomainNextSteps({ domain }));
+  }
+}
+
+/** Impersonation scoring, reached as `client.impersonation`. Costs credits. */
+export class ImpersonationResource {
+  constructor(private readonly api: ImpersonationApi) {}
+
+  /**
+   * Score whether a sender poses as one of the identities you protect. Send
+   * the From address, optional display name, Reply-To and DMARC result, plus
+   * the `protected` identities.
+   */
+  analyze(request: ImpersonationAnalyzeParams): Promise<ImpersonationAnalyzeResponse> {
+    // The generated model names the list `_protected`, but the runtime sends
+    // the body object as-is, so passing the wire-shaped object keeps `protected`.
+    const body = request as unknown as ImpersonationAnalyzeRequest;
+    return call(() => this.api.analyzeImpersonation({ impersonationAnalyzeRequest: body }));
+  }
+}
+
 export class Emailsherlock {
   readonly verify: VerifyResource;
   readonly guard: GuardResource;
+  readonly deliverability: DeliverabilityResource;
+  readonly dmarc: DmarcResource;
+  readonly tlsRpt: TlsRptResource;
+  readonly domains: DomainsResource;
+  readonly impersonation: ImpersonationResource;
   /** The tenant this client works in, or undefined for the key's own account. */
   readonly clientId?: number;
 
@@ -150,6 +292,12 @@ export class Emailsherlock {
 
     this.verify = new VerifyResource(new VerifyApi(configuration));
     this.guard = new GuardResource(new GuardApi(configuration));
+    const domainReports = new DomainReportsApi(configuration);
+    this.deliverability = new DeliverabilityResource(new DeliverabilityApi(configuration));
+    this.dmarc = new DmarcResource(new DomainSetupApi(configuration), domainReports);
+    this.tlsRpt = new TlsRptResource(domainReports);
+    this.domains = new DomainsResource(domainReports);
+    this.impersonation = new ImpersonationResource(new ImpersonationApi(configuration));
     this.account = new AccountApi(configuration);
   }
 

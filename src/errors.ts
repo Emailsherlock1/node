@@ -54,7 +54,7 @@ export class RateLimitError extends EmailsherlockError {
 /** 400 / 404 / 422 — the request was rejected. */
 export class ValidationError extends EmailsherlockError {}
 
-/** 503 — the verify engine could not answer; the credit was auto-refunded. */
+/** 503: the service could not answer just now. On verify and impersonation calls the credit was auto-refunded. */
 export class ServiceUnavailableError extends EmailsherlockError {}
 
 async function safeJson(response: Response): Promise<ApiErrorEnvelope | null> {

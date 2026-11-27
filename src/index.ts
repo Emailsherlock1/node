@@ -1,4 +1,13 @@
-export { Emailsherlock, VerifyResource, GuardResource } from './client.js';
+export {
+  Emailsherlock,
+  VerifyResource,
+  GuardResource,
+  DeliverabilityResource,
+  DmarcResource,
+  TlsRptResource,
+  DomainsResource,
+  ImpersonationResource,
+} from './client.js';
 export type { ClientOptions } from './client.js';
 export { VERSION } from './version.js';
 export {
@@ -11,7 +20,16 @@ export {
   ServiceUnavailableError,
 } from './errors.js';
 export { isVerifyResult } from './types.js';
-export type { RateLimit } from './types.js';
+export type {
+  RateLimit,
+  ListChecksOptions,
+  DmarcSummaryOptions,
+  DmarcReportsOptions,
+  DmarcSourcesOptions,
+  TlsRptReportsOptions,
+  DomainChangesOptions,
+  ImpersonationAnalyzeParams,
+} from './types.js';
 
 // Response + request model types, regenerated from the OpenAPI spec.
 export type {
@@ -27,6 +45,44 @@ export type {
   AccountStatusResponseCredits,
   AccountStatusResponseRateLimit,
   GuardEventsRequest,
+  ListCheckAddresses200Response,
+  DeliverabilityAddressResource,
+  DeliverabilityAddressResourceLatestVerdict,
+  DeliverabilityLatestVerdictResource,
+  DeliverabilityLatestVerdictResourceVerdict,
+  ListChecks200Response,
+  DeliverabilityCheckResource,
+  GetCheck200Response,
+  DeliverabilityWebhookResource,
+  DeliverabilityWebhookResourceWebhook,
+  DmarcSetupResource,
+  DmarcSetupResourceDnsProvider,
+  DmarcSetupResourceRecord,
+  DmarcSetupResourceWatchSlots,
+  DmarcSummaryResource,
+  DmarcSummaryResourceReportedPolicy,
+  ListDmarcReports200Response,
+  DmarcReportResource,
+  DmarcReportResourcePolicy,
+  ListDmarcSources200Response,
+  DmarcSourceResource,
+  DmarcSourceResourceDispositions,
+  ListTlsRptReports200Response,
+  TlsRptReportResource,
+  TlsRptReportResourcePoliciesInner,
+  ListDomainChanges200Response,
+  DomainChangeResource,
+  DomainChangeResourceChanges,
+  NextStepsResource,
+  NextStepsResourceFindingsInner,
+  NextStepsResourceLadder,
+  NextStepsResourceLadderStepsInner,
+  NextStepsResourcePolicy,
+  NextStepsResourceUnalignedSourcesInner,
+  NextStepsResourceUnalignedSourcesInnerDkimRecordsInner,
+  ImpersonationAnalyzeRequestProtectedInner,
+  ImpersonationAnalyzeResponse,
+  ImpersonationAnalyzeResponseReasonsInner,
 } from './generated/index.js';
 
 import { Emailsherlock } from './client.js';

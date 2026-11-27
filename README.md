@@ -114,6 +114,86 @@ await es.guard.recordEvents([
 ]);
 ```
 
+## Deliverability checks
+
+Read the verdicts of your Deliverability check addresses. `latest(id)` returns the
+last cached verdict without a live probe, so you can call it right before a send:
+
+```js
+const { addresses } = await es.deliverability.listAddresses();
+const gate = await es.deliverability.latest(addresses[0].id);
+gate.has_result; // false until the first check ran
+
+const page = await es.deliverability.listChecks(addresses[0].id, { limit: 20 });
+const check = await es.deliverability.getCheck(page.checks[0].id);
+
+// the response carries the signing secret this one time, store it
+const { webhook } = await es.deliverability.setWebhook(addresses[0].id, { url: 'https://hooks.example.com/emailsherlock' });
+await es.deliverability.deleteWebhook(addresses[0].id);
+```
+
+## DMARC
+
+`start(domain)` adds the domain to the ones your account watches and returns the
+record to publish. `check(domain)` looks the record up again:
+
+```js
+const setup = await es.dmarc.start('acme.com');
+setup.record; // what to publish in DNS, or null
+
+const status = await es.dmarc.check('acme.com');
+status.confirmed; // true once the record carries your report address
+
+const summary = await es.dmarc.summary('acme.com', { range: 7 });
+const { reports } = await es.dmarc.reports('acme.com', { from: '2026-11-01', limit: 50 });
+const { sources } = await es.dmarc.sources('acme.com', { result: 'fail' });
+```
+
+`summary`, `reports` and `sources` need your account's report address in the
+domain's DMARC record. Watching a domain does not unlock its reports; without the
+address they throw a `ForbiddenError`.
+
+## TLS-RPT
+
+```js
+const { reports } = await es.tlsRpt.reports('acme.com', { range: 30 });
+```
+
+This needs your account's report address in the domain's TLS-RPT record.
+
+## Domain changes and next steps
+
+```js
+const { changes } = await es.domains.changes('acme.com', { limit: 25 });
+
+const next = await es.domains.nextSteps('acme.com');
+next.ladder;            // the steps from monitoring to p=reject, null at p=reject
+next.unaligned_sources; // sources that still fail DMARC, with the repair for each
+```
+
+`changes` works for any domain you watch. `nextSteps` needs your account's report
+address in the domain's DMARC record.
+
+The Deliverability, DMARC, TLS-RPT and domain calls are free and consume no credits.
+
+## Impersonation
+
+Send the sender header fields of one message plus the identities you protect.
+No subject or body is accepted. This call costs credits:
+
+```js
+const verdict = await es.impersonation.analyze({
+  from: 'jane.doe@gmail.com',
+  display_name: 'Jane Doe',
+  protected: [{ name: 'Jane Doe', domains: ['acme.com'] }],
+});
+
+verdict.risk;    // 'none' · 'low' · 'medium' · 'high'
+verdict.reasons; // [{ reason: 'display_name', weight, detail }, …]
+```
+
+The identity list goes in `protected`, the field name the API reads.
+
 ## Credits and rate limits
 
 After every call the client exposes what the response headers reported:
@@ -133,8 +213,11 @@ Every failure throws a subclass of `EmailsherlockError`:
 | `ForbiddenError`            | 403  | key lacks the endpoint's scope (`requiredScope`) |
 | `InsufficientCreditsError`  | 402  | not enough credits (`creditsRequired`, `creditsRemaining`) |
 | `RateLimitError`            | 429  | rate limit hit (`retryAfter`, `limit`, `remaining`, `reset`) |
-| `ValidationError`           | 400 / 404 / 422 | the request was rejected, or the job was not found |
-| `ServiceUnavailableError`   | 503  | verify engine unavailable (the credit is auto-refunded) |
+| `ValidationError`           | 400 / 404 / 422 | the request was rejected, or the job, address or domain was not found |
+| `ServiceUnavailableError`   | 503  | the service could not answer just now (on verify and impersonation the credit is auto-refunded) |
+
+Any other status, such as `409` from `dmarc.start` when your plan's watch slots are
+used up, throws the base `EmailsherlockError` with `status` and `code` set.
 
 ```js
 import { RateLimitError } from '@emailsherlock/node';

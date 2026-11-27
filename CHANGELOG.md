@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- `es.deliverability`: `listAddresses()`, `latest(id)` (the pre-send gate), `listChecks(id, { limit, offset })`, `getCheck(id)`, `setWebhook(id, { url })` (returns the signing secret once) and `deleteWebhook(id)`.
+- `es.dmarc`: `start(domain)`, `check(domain)`, `summary(domain, { range })`, `reports(domain, { from, to, reporter, limit, offset })` and `sources(domain, { range, result, check, limit, offset })`.
+- `es.tlsRpt.reports(domain, { range, limit, offset })` for the TLS-RPT reports of a domain.
+- `es.domains`: `changes(domain, { limit, offset })` and `nextSteps(domain)`.
+- `es.impersonation.analyze(request)` scores whether a sender poses as one of the identities you protect. The request type `ImpersonationAnalyzeParams` uses the wire field `protected`.
+- `clientId` option and `es.withClientId(id)` send `X-Client-Id`, so a provider key can work inside one of its tenants. Invalid ids throw a `config_error`; the `client_not_found`, `forbidden` and `client_id_not_allowed` server codes are readable on `err.code`. This was merged after 0.3.0 was published and ships with this release.
+- Response and option types for the new endpoints are exported.
+
+### Changed
+
+- The generated doc comments now point at https://www.hostsherlock.com/api/docs.
+
 ## 0.3.0
 
 The client is now generated from the EmailSherlock OpenAPI spec, with a thin
@@ -8,7 +24,6 @@ this release adds the endpoints and result fields the API already served.
 
 ### Added
 
-- `clientId` option and `es.withClientId(id)` send `X-Client-Id`, so a provider key can work inside one of its tenants. Invalid ids throw a `config_error`; the `client_not_found`, `forbidden` and `client_id_not_allowed` server codes are readable on `err.code`.
 - `es.credits()` reads the account status (credit buckets, rate limit, plan, sandbox flag).
 - `es.verify.submitJob({ emails })` and `es.verify.getJob(id)` for asynchronous verification jobs.
 - `es.guard.recordEvents(events)` records Email-Guard decision events.
